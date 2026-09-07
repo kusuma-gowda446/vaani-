@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+vaani_env/
+venv/
+env/
+
+# Audio files (large)
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.aac
+temp*.wav
+output*.wav
+
+# Model cache (VERY LARGE - don't push!)
+.cache/
+~/.cache/huggingface/
+*.nemo
+*.bin
+*.safetensors
+*.ckpt
+*.pth
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env
+.env
+.env.local
