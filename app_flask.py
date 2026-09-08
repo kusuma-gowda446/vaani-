@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """
-Pragna Vaani - Flask Web UI
-Kannada Speech Recognition & English-to-Kannada Translation
+Pragna Vaani - Kannada Speech Recognition (Kannada Only)
+Only Kannada Speech → Kannada Text
 """
 
 import os
 import subprocess
 import tempfile
 import uuid
-import shutil
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 import torch
-import whisper
-from transformers import AutoModel, AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AutoModel
 from dotenv import load_dotenv
 
 # Load token
@@ -23,25 +21,25 @@ DEV = 'cpu'
 
 # Create Flask app
 app = Flask(__name__)
-CORS(app)
+
+# Enable CORS
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+# File size limit
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 
 # Create folders
 UPLOAD_FOLDER = 'uploads'
-STATIC_FOLDER = 'static'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
-if not os.path.exists(STATIC_FOLDER):
-    os.makedirs(STATIC_FOLDER)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
 
 # Allowed extensions
 ALLOWED_EXTENSIONS = {
     'wav', 'mp3', 'm4a', 'flac', 'aac', 'ogg', 'opus', 
     'mp4', 'mpeg', 'mpga', 'webm', 'm4p', 'm4b', 'm4r',
-    '3gp', '3gpp', '3g2', 'amr', 'aiff', 'aif', 'aifc',
-    'au', 'snd', 'raw', 'pcm', 'caf'
+    '3gp', '3gpp', '3g2', 'amr', 'aiff', 'aif', 'aifc'
 }
 
 def allowed_file(filename):
@@ -51,28 +49,20 @@ def allowed_file(filename):
     return ext in ALLOWED_EXTENSIONS
 
 # ============================================================
-# Load Models
+# Load Kannada ASR Model Only
 # ============================================================
 
-print('🔄 Loading models...')
-
-print('  → Kannada ASR (SraVaani-1.0)...')
+print('🔄 Loading Kannada ASR model (SraVaani-1.0)...')
 REPO = 'ARTPARK-IISc/SraVaani-1.0'
-if TOKEN:
-    asr_model = AutoModel.from_pretrained(REPO, trust_remote_code=True, token=TOKEN).to(DEV).eval()
-else:
-    asr_model = AutoModel.from_pretrained(REPO, trust_remote_code=True).to(DEV).eval()
-print('  ✅ Kannada ASR ready!')
-
-print('  → English ASR (Whisper)...')
-whisper_model = whisper.load_model("base")
-print('  ✅ Whisper ready!')
-
-print('  → Translation (NLLB)...')
-trans_model_name = "facebook/nllb-200-distilled-600M"
-trans_tokenizer = AutoTokenizer.from_pretrained(trans_model_name, src_lang="eng_Latn")
-translation_model = AutoModelForSeq2SeqLM.from_pretrained(trans_model_name).to(DEV).eval()
-print('  ✅ Translation ready!')
+try:
+    if TOKEN:
+        asr_model = AutoModel.from_pretrained(REPO, trust_remote_code=True, token=TOKEN).to(DEV).eval()
+    else:
+        asr_model = AutoModel.from_pretrained(REPO, trust_remote_code=True).to(DEV).eval()
+    print('✅ Kannada ASR model ready!')
+except Exception as e:
+    print(f'❌ Failed to load model: {e}')
+    exit(1)
 
 print('\n✅ All models loaded!\n')
 
@@ -81,6 +71,7 @@ print('\n✅ All models loaded!\n')
 # ============================================================
 
 def add_kannada_punctuation(text):
+    """Add simple punctuation to Kannada text"""
     text = ' '.join(text.split())
     if text and not text[-1] in ['.', '।', '?', '!']:
         text = text + '।'
@@ -88,26 +79,66 @@ def add_kannada_punctuation(text):
         text = text[:-1] + '।'
     return text
 
-def convert_to_wav(input_path):
-    try:
-        temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False).name
-        cmd = [
-            'ffmpeg', '-i', input_path,
-            '-ac', '1', '-ar', '16000',
-            '-acodec', 'pcm_s16le',
-            temp_wav, '-y', '-loglevel', 'error'
-        ]
-        subprocess.run(cmd, capture_output=True, check=True)
-        return temp_wav
-    except:
-        return None
-
 def cleanup_file(file_path):
+    """Clean up temporary file"""
     if file_path and os.path.exists(file_path):
         try:
             os.remove(file_path)
+            print(f"🗑️ Deleted: {os.path.basename(file_path)}")
         except:
             pass
+
+def convert_to_wav(input_path):
+    """Convert any audio format to WAV (16kHz, mono)"""
+    try:
+        print(f"🔄 Converting: {os.path.basename(input_path)}")
+        
+        temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_wav.close()
+        temp_wav_path = temp_wav.name
+        
+        cmd = [
+            'ffmpeg',
+            '-i', input_path,
+            '-ac', '1',
+            '-ar', '16000',
+            '-acodec', 'pcm_s16le',
+            '-y',
+            temp_wav_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode != 0:
+            print(f"❌ FFmpeg error: {result.stderr[:200]}")
+            cleanup_file(temp_wav_path)
+            return None
+        
+        if not os.path.exists(temp_wav_path) or os.path.getsize(temp_wav_path) == 0:
+            print("❌ Output file is empty or missing")
+            cleanup_file(temp_wav_path)
+            return None
+        
+        # Verify with soundfile
+        try:
+            import soundfile as sf
+            data, sr = sf.read(temp_wav_path, dtype='float32', always_2d=True)
+            print(f"✅ Converted: {len(data)/sr:.1f}s, {sr}Hz, {data.shape[1]} channels")
+        except Exception as e:
+            print(f"❌ Soundfile validation failed: {e}")
+            cleanup_file(temp_wav_path)
+            return None
+        
+        return temp_wav_path
+        
+    except subprocess.TimeoutExpired:
+        print("❌ FFmpeg conversion timed out (60s)")
+        cleanup_file(temp_wav_path)
+        return None
+    except Exception as e:
+        print(f"❌ Conversion error: {e}")
+        cleanup_file(temp_wav_path)
+        return None
 
 # ============================================================
 # Routes
@@ -125,105 +156,86 @@ def serve_audio(filename):
         return send_file(file_path, mimetype='audio/wav')
     return "File not found", 404
 
-@app.route('/transcribe', methods=['POST'])
+@app.route('/transcribe', methods=['POST', 'OPTIONS'])
 def transcribe():
+    """Kannada ASR: Kannada Speech → Kannada Text"""
+    
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        return response
+    
     temp_file = None
     uploaded_file_path = None
     
     try:
+        # Only Kannada mode
         mode = request.form.get('mode', 'kannada')
         
+        if mode != 'kannada':
+            return jsonify({'error': 'Only Kannada ASR is supported. Please select Kannada mode.'}), 400
+        
         if 'audio' not in request.files:
-            return jsonify({'error': 'No audio file'}), 400
+            return jsonify({'error': 'No audio file provided'}), 400
         
         file = request.files['audio']
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
         
-        # Get extension
+        # Save uploaded file
         original_filename = file.filename
-        ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else ''
+        ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'webm'
         
         if not allowed_file(original_filename):
             return jsonify({'error': f'File type "{ext}" not supported'}), 400
         
-        # Save file
-        filename = str(uuid.uuid4()) + '.' + (ext if ext else 'wav')
+        filename = str(uuid.uuid4()) + '.' + ext
         uploaded_file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(uploaded_file_path)
         
-        # Convert to WAV if needed
-        if ext != 'wav':
-            print(f'🔄 Converting {ext} to WAV...')
-            temp_file = convert_to_wav(uploaded_file_path)
-            if not temp_file:
-                cleanup_file(uploaded_file_path)
-                return jsonify({'error': 'Failed to convert audio'}), 500
-            audio_to_process = temp_file
-        else:
-            audio_to_process = uploaded_file_path
+        print(f"📁 Saved: {original_filename} ({os.path.getsize(uploaded_file_path)} bytes)")
         
-        # Process
-        if mode == 'kannada':
-            print(f'🎤 Kannada ASR: {os.path.basename(audio_to_process)}')
-            result = asr_model.transcribe([audio_to_process])[0]
-            result = add_kannada_punctuation(result)
-            
-            cleanup_file(temp_file)
-            
-            return jsonify({
-                'success': True,
-                'result': result,
-                'mode': 'Kannada ASR',
-                'audio_url': f'/audio/{filename}'
-            })
+        # Convert to WAV
+        print(f'🔄 Converting to WAV...')
+        temp_file = convert_to_wav(uploaded_file_path)
         
-        elif mode == 'english':
-            print(f'🌐 English → Kannada: {os.path.basename(audio_to_process)}')
-            
-            # Transcribe English
-            result = whisper_model.transcribe(audio_to_process, language="en")
-            english_text = result["text"]
-            
-            # Translate to Kannada
-            inputs = trans_tokenizer(english_text, return_tensors="pt", truncation=True, max_length=512)
-            with torch.no_grad():
-                outputs = translation_model.generate(
-                    **inputs,
-                    forced_bos_token_id=trans_tokenizer.convert_tokens_to_ids("kan_Knda"),
-                    max_length=200,
-                    num_beams=5,
-                    early_stopping=True
-                )
-            kannada_text = trans_tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            cleanup_file(temp_file)
-            
-            return jsonify({
-                'success': True,
-                'english': english_text,
-                'result': kannada_text,
-                'mode': 'English → Kannada',
-                'audio_url': f'/audio/{filename}'
-            })
-        
-        else:
-            cleanup_file(temp_file)
+        if not temp_file:
             cleanup_file(uploaded_file_path)
-            return jsonify({'error': f'Invalid mode: {mode}'}), 400
+            return jsonify({'error': 'Failed to convert audio. Make sure ffmpeg is installed.'}), 500
+        
+        # Transcribe Kannada
+        print(f'🎤 Kannada ASR: {os.path.basename(temp_file)}')
+        result = asr_model.transcribe([temp_file])[0]
+        result = add_kannada_punctuation(result)
+        
+        # Clean up
+        cleanup_file(temp_file)
+        cleanup_file(uploaded_file_path)
+        
+        response = jsonify({
+            'success': True,
+            'result': result,
+            'mode': 'Kannada ASR',
+            'audio_url': f'/audio/{filename}'
+        })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
     
     except Exception as e:
         cleanup_file(temp_file)
         cleanup_file(uploaded_file_path)
-        print(f"Error: {e}")
+        print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print('\n' + '='*60)
-    print('🚀 Pragna Vaani - Flask UI')
+    print('🎙️ Pragna Vaani - Kannada Speech Recognition')
     print('🌐 Open: http://127.0.0.1:5000')
     print('📝 Press Ctrl+C to stop')
     print('='*60 + '\n')
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    
+    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
