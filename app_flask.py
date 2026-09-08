@@ -234,8 +234,8 @@ def transcribe():
 if __name__ == '__main__':
     print('\n' + '='*60)
     print('🎙️ Pragna Vaani - Kannada Speech Recognition')
-    print('🌐 Open: http://127.0.0.1:5000')
+    print('🌐 Open: http://127.0.0.1:2000')
     print('📝 Press Ctrl+C to stop')
     print('='*60 + '\n')
     
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
+    app.run(host='0.0.0.0', port=2000, debug=True, threaded=True)
