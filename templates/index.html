@@ -476,19 +476,23 @@
         <div class="header">
             <div class="logo">🎙️ ಪ್ರಜ್ಞಾ <span>ವಾಣಿ</span></div>
             <div class="subtitle">Pragna Vaani · Kannada Speech Suite</div>
-            <div class="badge">✦ 65+ Indian Languages Supported</div>
+            <div class="badge">✦ Any Supported Language → Kannada</div>
         </div>
-        
+
         <!-- Mode Selector -->
         <div class="mode-selector">
             <button class="mode-btn active" data-mode="kannada" onclick="selectMode('kannada')">
                 🎤 Kannada ASR
             </button>
-            <button class="mode-btn" data-mode="english" onclick="selectMode('english')">
-                🌐 English → Kannada
+            <button class="mode-btn" data-mode="multilingual" onclick="selectMode('multilingual')">
+                🌐 Other Language → Kannada
             </button>
         </div>
-        
+
+        <div class="hint" id="languageHint" style="margin: -14px 0 16px 2px; display: none;">
+            Supported: English, Hindi, Tamil, Telugu, Malayalam, Marathi, Bengali, Gujarati, Punjabi, Urdu
+        </div>
+
         <!-- Upload -->
         <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
             <div class="icon">📄</div>
@@ -548,10 +552,10 @@
                 <div class="text kannada" id="resultText"></div>
             </div>
             
-            <!-- English Intermediate -->
-            <div class="result-card" id="englishCard" style="display: none;">
-                <div class="label">ENGLISH TRANSCRIPTION</div>
-                <div class="text" id="englishText"></div>
+            <!-- Original-language Intermediate -->
+            <div class="result-card" id="originalCard" style="display: none;">
+                <div class="label" id="originalLabel">ORIGINAL TRANSCRIPTION</div>
+                <div class="text" id="originalText"></div>
             </div>
         </div>
         
@@ -635,6 +639,7 @@
             document.querySelectorAll('.mode-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.mode === mode);
             });
+            document.getElementById('languageHint').style.display = mode === 'multilingual' ? 'block' : 'none';
             document.getElementById('resultSection').classList.remove('show');
             document.getElementById('audioPlayer').style.display = 'none';
         }
@@ -784,17 +789,18 @@
                     }
                     
                     // Show result
-                    document.getElementById('resultLabel').textContent = 
+                    document.getElementById('resultLabel').textContent =
                         data.mode === 'Kannada ASR' ? 'KANNADA TRANSCRIPTION' : 'KANNADA TRANSLATION';
                     document.getElementById('resultText').textContent = data.result;
                     document.getElementById('resultCard').style.display = 'block';
-                    
-                    // Show English intermediate
-                    if (data.mode === 'English → Kannada' && data.english) {
-                        document.getElementById('englishText').textContent = data.english;
-                        document.getElementById('englishCard').style.display = 'block';
+
+                    // Show original-language intermediate (multilingual mode, non-Kannada input)
+                    if (data.original_text && data.detected_language && data.detected_language !== 'Kannada') {
+                        document.getElementById('originalLabel').textContent = data.detected_language.toUpperCase() + ' TRANSCRIPTION';
+                        document.getElementById('originalText').textContent = data.original_text;
+                        document.getElementById('originalCard').style.display = 'block';
                     } else {
-                        document.getElementById('englishCard').style.display = 'none';
+                        document.getElementById('originalCard').style.display = 'none';
                     }
                     
                     document.getElementById('resultSection').classList.add('show');

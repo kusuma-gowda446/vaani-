@@ -11,7 +11,8 @@ import uuid
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 import torch
-from transformers import AutoModel
+from transformers import AutoModel, AutoModelForSeq2SeqLM, AutoTokenizer
+import whisper
 from dotenv import load_dotenv
 
 # Load token
@@ -64,7 +65,32 @@ except Exception as e:
     print(f'❌ Failed to load model: {e}')
     exit(1)
 
+print('🔄 Loading multilingual ASR model (Whisper)...')
+whisper_model = whisper.load_model('base')
+print('✅ Whisper model ready!')
+
+print('🔄 Loading translation model (NLLB-200)...')
+TRANS_REPO = 'facebook/nllb-200-distilled-600M'
+trans_tokenizer = AutoTokenizer.from_pretrained(TRANS_REPO)
+translation_model = AutoModelForSeq2SeqLM.from_pretrained(TRANS_REPO).to(DEV).eval()
+print('✅ Translation model ready!')
+
 print('\n✅ All models loaded!\n')
+
+# Whisper language code -> (NLLB FLORES-200 code, display name)
+SUPPORTED_LANGUAGES = {
+    'en': ('eng_Latn', 'English'),
+    'hi': ('hin_Deva', 'Hindi'),
+    'ta': ('tam_Taml', 'Tamil'),
+    'te': ('tel_Telu', 'Telugu'),
+    'ml': ('mal_Mlym', 'Malayalam'),
+    'mr': ('mar_Deva', 'Marathi'),
+    'bn': ('ben_Beng', 'Bengali'),
+    'gu': ('guj_Gujr', 'Gujarati'),
+    'pa': ('pan_Guru', 'Punjabi'),
+    'ur': ('urd_Arab', 'Urdu'),
+    'kn': ('kan_Knda', 'Kannada'),
+}
 
 # ============================================================
 # Helper Functions
@@ -78,6 +104,20 @@ def add_kannada_punctuation(text):
     if text.endswith('.'):
         text = text[:-1] + '।'
     return text
+
+def translate_to_kannada(text, nllb_lang):
+    """Translate text from the given NLLB language code to Kannada"""
+    trans_tokenizer.src_lang = nllb_lang
+    inputs = trans_tokenizer(text, return_tensors='pt', truncation=True, max_length=512)
+    with torch.no_grad():
+        outputs = translation_model.generate(
+            **inputs,
+            forced_bos_token_id=trans_tokenizer.convert_tokens_to_ids('kan_Knda'),
+            max_length=200,
+            num_beams=5,
+            early_stopping=True
+        )
+    return trans_tokenizer.decode(outputs[0], skip_special_tokens=True)
 
 def cleanup_file(file_path):
     """Clean up temporary file"""
@@ -171,12 +211,12 @@ def transcribe():
     uploaded_file_path = None
     
     try:
-        # Only Kannada mode
         mode = request.form.get('mode', 'kannada')
-        
-        if mode != 'kannada':
-            return jsonify({'error': 'Only Kannada ASR is supported. Please select Kannada mode.'}), 400
-        
+
+        if mode not in ('kannada', 'multilingual'):
+            supported = ', '.join(name for _, name in SUPPORTED_LANGUAGES.values())
+            return jsonify({'error': f'Invalid mode. Choose "kannada" or "multilingual" (supports: {supported}).'}), 400
+
         if 'audio' not in request.files:
             return jsonify({'error': 'No audio file provided'}), 400
         
@@ -205,19 +245,50 @@ def transcribe():
             cleanup_file(uploaded_file_path)
             return jsonify({'error': 'Failed to convert audio. Make sure ffmpeg is installed.'}), 500
         
-        # Transcribe Kannada
-        print(f'🎤 Kannada ASR: {os.path.basename(temp_file)}')
-        result = asr_model.transcribe([temp_file])[0]
-        result = add_kannada_punctuation(result)
-        
+        detected_language = None
+        original_text = None
+
+        if mode == 'kannada':
+            print(f'🎤 Kannada ASR: {os.path.basename(temp_file)}')
+            result = asr_model.transcribe([temp_file])[0]
+            result = add_kannada_punctuation(result)
+            response_mode = 'Kannada ASR'
+        else:
+            print(f'🎤 Detecting language: {os.path.basename(temp_file)}')
+            whisper_result = whisper_model.transcribe(temp_file)
+            lang_code = whisper_result['language']
+            original_text = whisper_result['text'].strip()
+
+            if lang_code not in SUPPORTED_LANGUAGES:
+                cleanup_file(temp_file)
+                cleanup_file(uploaded_file_path)
+                supported = ', '.join(name for _, name in SUPPORTED_LANGUAGES.values())
+                return jsonify({'error': f'Detected language is not supported. Supported languages: {supported}.'}), 400
+
+            nllb_code, detected_language = SUPPORTED_LANGUAGES[lang_code]
+
+            if lang_code == 'kn':
+                # Already Kannada — use the dedicated ASR model for best accuracy
+                print('🎤 Detected Kannada — using SraVaani for transcription')
+                result = asr_model.transcribe([temp_file])[0]
+                original_text = result
+            else:
+                print(f'🔄 Translating from {detected_language} to Kannada...')
+                result = translate_to_kannada(original_text, nllb_code)
+
+            result = add_kannada_punctuation(result)
+            response_mode = 'Multilingual → Kannada'
+
         # Clean up
         cleanup_file(temp_file)
         cleanup_file(uploaded_file_path)
-        
+
         response = jsonify({
             'success': True,
             'result': result,
-            'mode': 'Kannada ASR',
+            'mode': response_mode,
+            'detected_language': detected_language,
+            'original_text': original_text,
             'audio_url': f'/audio/{filename}'
         })
         response.headers.add('Access-Control-Allow-Origin', '*')
