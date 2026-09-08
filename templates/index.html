@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎙️ Pragna Vaani</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 28px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.06);
+            padding: 40px;
+            max-width: 720px;
+            width: 100%;
+        }
+        
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        
+        .header .logo {
+            font-size: 2.6rem;
+            font-weight: 700;
+            color: #0f172a;
+            letter-spacing: -0.5px;
+        }
+        
+        .header .logo span {
+            color: #059669;
+        }
+        
+        .header .subtitle {
+            color: #64748b;
+            font-size: 0.95rem;
+            margin-top: 4px;
+        }
+        
+        .header .badge {
+            display: inline-block;
+            background: #d1fae5;
+            color: #065f46;
+            padding: 3px 14px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-top: 8px;
+            letter-spacing: 0.3px;
+        }
+        
+        /* Mode Selector */
+        .mode-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            background: #f1f5f9;
+            border-radius: 14px;
+            padding: 5px;
+        }
+        
+        .mode-btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            cursor: pointer;
+            font-size: 0.88rem;
+            font-weight: 500;
+            transition: all 0.3s;
+            color: #64748b;
+        }
+        
+        .mode-btn:hover {
+            color: #0f172a;
+        }
+        
+        .mode-btn.active {
+            background: white;
+            color: #059669;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        
+        /* Upload Area */
+        .upload-area {
+            border: 2px dashed #e2e8f0;
+            border-radius: 16px;
+            padding: 32px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 16px;
+        }
+        
+        .upload-area:hover {
+            border-color: #059669;
+            background: #f8fafc;
+        }
+        
+        .upload-area.dragover {
+            border-color: #059669;
+            background: #f0fdf4;
+        }
+        
+        .upload-area .icon {
+            font-size: 2.8rem;
+            margin-bottom: 6px;
+        }
+        
+        .upload-area .title {
+            font-weight: 500;
+            color: #0f172a;
+            font-size: 1rem;
+        }
+        
+        .upload-area .hint {
+            font-size: 0.82rem;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+        
+        .upload-area .formats {
+            font-size: 0.7rem;
+            color: #cbd5e1;
+            margin-top: 6px;
+            letter-spacing: 0.3px;
+        }
+        
+        #fileInput {
+            display: none;
+        }
+        
+        /* File Info */
+        .file-info {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            background: #f8fafc;
+            padding: 10px 16px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .file-info.show {
+            display: flex;
+        }
+        
+        .file-info .name {
+            flex: 1;
+            font-weight: 500;
+            color: #0f172a;
+            font-size: 0.9rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .file-info .size {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+        
+        .file-info .remove {
+            cursor: pointer;
+            color: #94a3b8;
+            font-size: 1.1rem;
+            padding: 0 2px;
+            transition: color 0.2s;
+        }
+        
+        .file-info .remove:hover {
+            color: #ef4444;
+        }
+        
+        /* Record & Transcribe */
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin: 4px 0 8px 0;
+        }
+        
+        .record-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+        
+        .record-btn:hover {
+            background: #e2e8f0;
+        }
+        
+        .record-btn.recording {
+            background: #ef4444;
+            color: white;
+            animation: pulse 1s infinite;
+        }
+        
+        .record-btn.recording:hover {
+            background: #dc2626;
+        }
+        
+        .record-status {
+            display: none;
+            color: #ef4444;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-left: 8px;
+        }
+        
+        .record-status.show {
+            display: inline;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        
+        .transcribe-btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            background: #059669;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 4px;
+        }
+        
+        .transcribe-btn:hover {
+            background: #047857;
+        }
+        
+        .transcribe-btn:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+        
+        /* Loading */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px 0;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border: 3px solid #e2e8f0;
+            border-top-color: #059669;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading p {
+            color: #94a3b8;
+            margin-top: 8px;
+            font-size: 0.9rem;
+        }
+        
+        /* Error */
+        .error {
+            display: none;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin-top: 12px;
+            font-size: 0.9rem;
+        }
+        
+        .error.show {
+            display: block;
+        }
+        
+        /* Results */
+        .result-section {
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .result-section.show {
+            display: block;
+        }
+        
+        /* Audio Player */
+        .audio-player {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: #f8fafc;
+            padding: 12px 18px;
+            border-radius: 14px;
+            margin-bottom: 16px;
+        }
+        
+        .play-btn {
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            border-radius: 50%;
+            border: none;
+            background: #059669;
+            color: white;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .play-btn:hover {
+            background: #047857;
+            transform: scale(1.04);
+        }
+        
+        .play-btn.playing {
+            background: #ef4444;
+        }
+        
+        .play-btn.playing:hover {
+            background: #dc2626;
+        }
+        
+        .audio-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .audio-info .filename {
+            font-size: 0.82rem;
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .audio-info .duration {
+            font-size: 0.7rem;
+            color: #94a3b8;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            margin-top: 4px;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .progress-bar .progress {
+            height: 100%;
+            background: #059669;
+            border-radius: 2px;
+            width: 0%;
+            transition: width 0.1s;
+        }
+        
+        .audio-player audio {
+            display: none;
+        }
+        
+        /* Result Cards */
+        .result-card {
+            background: #f8fafc;
+            padding: 16px 20px;
+            border-radius: 14px;
+            margin-bottom: 10px;
+        }
+        
+        .result-card .label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+        
+        .result-card .text {
+            font-size: 1.1rem;
+            color: #0f172a;
+            padding: 6px 0 0 0;
+            line-height: 1.7;
+            word-wrap: break-word;
+        }
+        
+        .result-card .text.kannada {
+            font-size: 1.25rem;
+            color: #0f172a;
+        }
+        
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 28px;
+            padding-top: 16px;
+            border-top: 1px solid #f1f5f9;
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
+        
+        .footer a {
+            color: #059669;
+            text-decoration: none;
+        }
+        
+        /* Responsive */
+        @media (max-width: 600px) {
+            .container {
+                padding: 24px 18px;
+                border-radius: 20px;
+            }
+            
+            .header .logo {
+                font-size: 2rem;
+            }
+            
+            .mode-selector {
+                flex-direction: column;
+            }
+            
+            .actions {
+                flex-direction: column;
+            }
+            
+            .audio-player {
+                flex-wrap: wrap;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">🎙️ ಪ್ರಜ್ಞಾ <span>ವಾಣಿ</span></div>
+            <div class="subtitle">Pragna Vaani · Kannada Speech Suite</div>
+            <div class="badge">✦ 65+ Indian Languages Supported</div>
+        </div>
+        
+        <!-- Mode Selector -->
+        <div class="mode-selector">
+            <button class="mode-btn active" data-mode="kannada" onclick="selectMode('kannada')">
+                🎤 Kannada ASR
+            </button>
+            <button class="mode-btn" data-mode="english" onclick="selectMode('english')">
+                🌐 English → Kannada
+            </button>
+        </div>
+        
+        <!-- Upload -->
+        <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+            <div class="icon">📄</div>
+            <div class="title" id="uploadTitle">Upload or drop audio</div>
+            <div class="hint" id="uploadHint">Click to browse</div>
+            <div class="formats">WAV · MP3 · M4A · FLAC · AAC · OGG · OPUS</div>
+            <input type="file" id="fileInput" accept=".wav,.mp3,.m4a,.flac,.aac,.ogg,.opus,.mp4,.webm" onchange="handleFile(event)">
+        </div>
+        
+        <!-- File Info -->
+        <div class="file-info" id="fileInfo">
+            <span class="name" id="fileName">audio.wav</span>
+            <span class="size" id="fileSize">0 KB</span>
+            <span class="remove" onclick="removeFile()">✕</span>
+        </div>
+        
+        <!-- Actions -->
+        <div class="actions">
+            <button class="record-btn" id="recordBtn" onclick="toggleRecording()">
+                🎙️ Record
+            </button>
+            <span class="record-status" id="recordingStatus">⏺️ Recording...</span>
+        </div>
+        
+        <!-- Transcribe -->
+        <button class="transcribe-btn" id="transcribeBtn" onclick="transcribe()">
+            🔊 Transcribe
+        </button>
+        
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Processing audio...</p>
+        </div>
+        
+        <!-- Error -->
+        <div class="error" id="error"></div>
+        
+        <!-- Results -->
+        <div class="result-section" id="resultSection">
+            <!-- Audio Player -->
+            <div class="audio-player" id="audioPlayer" style="display: none;">
+                <button class="play-btn" id="playBtn" onclick="togglePlay()">▶</button>
+                <div class="audio-info">
+                    <div class="filename" id="audioFileName">audio.wav</div>
+                    <div class="duration" id="audioDuration">0:00 / 0:00</div>
+                    <div class="progress-bar" id="progressBar" onclick="seekAudio(event)">
+                        <div class="progress" id="progressFill"></div>
+                    </div>
+                </div>
+                <audio id="audioElement" style="display: none;"></audio>
+            </div>
+            
+            <!-- Result -->
+            <div class="result-card" id="resultCard">
+                <div class="label" id="resultLabel">KANNADA TRANSCRIPTION</div>
+                <div class="text kannada" id="resultText"></div>
+            </div>
+            
+            <!-- English Intermediate -->
+            <div class="result-card" id="englishCard" style="display: none;">
+                <div class="label">ENGLISH TRANSCRIPTION</div>
+                <div class="text" id="englishText"></div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            Built with ❤️ for Kannada · ARTPARK-IISc · SraVaani-1.0
+        </div>
+    </div>
+    
+    <script>
+        let selectedMode = 'kannada';
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let isPlaying = false;
+        
+        const audioElement = document.getElementById('audioElement');
+        const playBtn = document.getElementById('playBtn');
+        const progressFill = document.getElementById('progressFill');
+        const audioDuration = document.getElementById('audioDuration');
+        
+        // Audio controls
+        audioElement.addEventListener('timeupdate', updateProgress);
+        audioElement.addEventListener('loadedmetadata', updateDuration);
+        audioElement.addEventListener('ended', () => {
+            isPlaying = false;
+            playBtn.textContent = '▶';
+            playBtn.classList.remove('playing');
+        });
+        
+        function togglePlay() {
+            if (audioElement.paused) {
+                audioElement.play();
+                isPlaying = true;
+                playBtn.textContent = '⏸';
+                playBtn.classList.add('playing');
+            } else {
+                audioElement.pause();
+                isPlaying = false;
+                playBtn.textContent = '▶';
+                playBtn.classList.remove('playing');
+            }
+        }
+        
+        function updateProgress() {
+            if (audioElement.duration) {
+                progressFill.style.width = (audioElement.currentTime / audioElement.duration * 100) + '%';
+                updateDurationDisplay();
+            }
+        }
+        
+        function updateDuration() {
+            updateDurationDisplay();
+        }
+        
+        function updateDurationDisplay() {
+            const current = formatTime(audioElement.currentTime);
+            const total = formatTime(audioElement.duration);
+            audioDuration.textContent = current + ' / ' + total;
+        }
+        
+        function formatTime(seconds) {
+            if (isNaN(seconds)) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return mins + ':' + (secs < 10 ? '0' : '') + secs;
+        }
+        
+        function seekAudio(event) {
+            const bar = document.getElementById('progressBar');
+            const rect = bar.getBoundingClientRect();
+            const percent = (event.clientX - rect.left) / rect.width;
+            if (audioElement.duration) {
+                audioElement.currentTime = percent * audioElement.duration;
+            }
+        }
+        
+        // Mode selection
+        function selectMode(mode) {
+            selectedMode = mode;
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+            document.getElementById('resultSection').classList.remove('show');
+            document.getElementById('audioPlayer').style.display = 'none';
+        }
+        
+        // File handling
+        function handleFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(1) + ' KB';
+            document.getElementById('fileInfo').classList.add('show');
+            document.getElementById('resultSection').classList.remove('show');
+            document.getElementById('audioPlayer').style.display = 'none';
+            document.getElementById('error').classList.remove('show');
+            
+            document.getElementById('uploadTitle').textContent = file.name;
+            document.getElementById('uploadHint').textContent = 'Ready to transcribe';
+        }
+        
+        function removeFile() {
+            document.getElementById('fileInput').value = '';
+            document.getElementById('fileInfo').classList.remove('show');
+            document.getElementById('uploadTitle').textContent = 'Upload or drop audio';
+            document.getElementById('uploadHint').textContent = 'Click to browse';
+            document.getElementById('resultSection').classList.remove('show');
+            document.getElementById('audioPlayer').style.display = 'none';
+            audioElement.pause();
+            audioElement.src = '';
+        }
+        
+        // Drag and drop
+        const uploadArea = document.getElementById('uploadArea');
+        uploadArea.addEventListener('dragover', e => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', e => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                const input = document.getElementById('fileInput');
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                input.files = dt.files;
+                handleFile({ target: input });
+            }
+        });
+        
+        // Recording
+        async function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+                return;
+            }
+            await startRecording();
+        }
+        
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(audioChunks, { type: 'audio/wav' });
+                    const file = new File([blob], 'recording.wav', { type: 'audio/wav' });
+                    
+                    const input = document.getElementById('fileInput');
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    input.files = dt.files;
+                    handleFile({ target: input });
+                    
+                    document.getElementById('recordBtn').textContent = '🎙️ Record';
+                    document.getElementById('recordBtn').classList.remove('recording');
+                    document.getElementById('recordingStatus').classList.remove('show');
+                    stream.getTracks().forEach(t => t.stop());
+                };
+                
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById('recordBtn').textContent = '⏹️ Stop';
+                document.getElementById('recordBtn').classList.add('recording');
+                document.getElementById('recordingStatus').classList.add('show');
+                
+            } catch (error) {
+                alert('Microphone access denied. Please allow microphone access.');
+                console.error(error);
+            }
+        }
+        
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+        }
+        
+        // Transcribe
+        async function transcribe() {
+            const input = document.getElementById('fileInput');
+            if (!input.files || input.files.length === 0) {
+                showError('Please upload or record an audio file first.');
+                return;
+            }
+            
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('audio', file);
+            formData.append('mode', selectedMode);
+            
+            document.getElementById('loading').classList.add('show');
+            document.getElementById('transcribeBtn').disabled = true;
+            document.getElementById('resultSection').classList.remove('show');
+            document.getElementById('audioPlayer').style.display = 'none';
+            document.getElementById('error').classList.remove('show');
+            
+            try {
+                const response = await fetch('/transcribe', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('transcribeBtn').disabled = false;
+                
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                if (data.success) {
+                    // Show audio player
+                    if (data.audio_url) {
+                        audioElement.src = data.audio_url;
+                        audioElement.load();
+                        document.getElementById('audioFileName').textContent = file.name;
+                        document.getElementById('audioPlayer').style.display = 'flex';
+                        isPlaying = false;
+                        playBtn.textContent = '▶';
+                        playBtn.classList.remove('playing');
+                        progressFill.style.width = '0%';
+                    }
+                    
+                    // Show result
+                    document.getElementById('resultLabel').textContent = 
+                        data.mode === 'Kannada ASR' ? 'KANNADA TRANSCRIPTION' : 'KANNADA TRANSLATION';
+                    document.getElementById('resultText').textContent = data.result;
+                    document.getElementById('resultCard').style.display = 'block';
+                    
+                    // Show English intermediate
+                    if (data.mode === 'English → Kannada' && data.english) {
+                        document.getElementById('englishText').textContent = data.english;
+                        document.getElementById('englishCard').style.display = 'block';
+                    } else {
+                        document.getElementById('englishCard').style.display = 'none';
+                    }
+                    
+                    document.getElementById('resultSection').classList.add('show');
+                }
+                
+            } catch (error) {
+                document.getElementById('loading').classList.remove('show');
+                document.getElementById('transcribeBtn').disabled = false;
+                showError('Network error: ' + error.message);
+            }
+        }
+        
+        function showError(msg) {
+            document.getElementById('error').textContent = msg;
+            document.getElementById('error').classList.add('show');
+            setTimeout(() => {
+                document.getElementById('error').classList.remove('show');
+            }, 8000);
+        }
+    </script>
+</body>
+</html>
