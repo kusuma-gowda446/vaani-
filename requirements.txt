@@ -6,4 +6,5 @@ torch>=2.0.0
 transformers>=4.40.0
 sentencepiece>=0.2.0
 openai-whisper>=20231117
+gunicorn>=21.0.0
 soundfile>=0.12.0
