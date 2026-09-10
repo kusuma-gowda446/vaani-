@@ -476,21 +476,7 @@
         <div class="header">
             <div class="logo">🎙️ ಪ್ರಜ್ಞಾ <span>ವಾಣಿ</span></div>
             <div class="subtitle">Pragna Vaani · Kannada Speech Suite</div>
-            <div class="badge">✦ Any Supported Language → Kannada</div>
-        </div>
-
-        <!-- Mode Selector -->
-        <div class="mode-selector">
-            <button class="mode-btn active" data-mode="kannada" onclick="selectMode('kannada')">
-                🎤 Kannada ASR
-            </button>
-            <button class="mode-btn" data-mode="multilingual" onclick="selectMode('multilingual')">
-                🌐 Other Language → Kannada
-            </button>
-        </div>
-
-        <div class="hint" id="languageHint" style="margin: -14px 0 16px 2px; display: none;">
-            Supported: English, Hindi, Tamil, Telugu, Malayalam, Marathi, Bengali, Gujarati, Punjabi, Urdu
+            <div class="badge">✦ Kannada Speech → Kannada Text</div>
         </div>
 
         <!-- Upload -->
@@ -548,14 +534,8 @@
             
             <!-- Result -->
             <div class="result-card" id="resultCard">
-                <div class="label" id="resultLabel">KANNADA TRANSCRIPTION</div>
+                <div class="label">KANNADA TRANSCRIPTION</div>
                 <div class="text kannada" id="resultText"></div>
-            </div>
-            
-            <!-- Original-language Intermediate -->
-            <div class="result-card" id="originalCard" style="display: none;">
-                <div class="label" id="originalLabel">ORIGINAL TRANSCRIPTION</div>
-                <div class="text" id="originalText"></div>
             </div>
         </div>
         
@@ -566,7 +546,6 @@
     </div>
     
     <script>
-        let selectedMode = 'kannada';
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecording = false;
@@ -631,17 +610,6 @@
             if (audioElement.duration) {
                 audioElement.currentTime = percent * audioElement.duration;
             }
-        }
-        
-        // Mode selection
-        function selectMode(mode) {
-            selectedMode = mode;
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.mode === mode);
-            });
-            document.getElementById('languageHint').style.display = mode === 'multilingual' ? 'block' : 'none';
-            document.getElementById('resultSection').classList.remove('show');
-            document.getElementById('audioPlayer').style.display = 'none';
         }
         
         // File handling
@@ -755,8 +723,7 @@
             const file = input.files[0];
             const formData = new FormData();
             formData.append('audio', file);
-            formData.append('mode', selectedMode);
-            
+
             document.getElementById('loading').classList.add('show');
             document.getElementById('transcribeBtn').disabled = true;
             document.getElementById('resultSection').classList.remove('show');
@@ -789,20 +756,9 @@
                     }
                     
                     // Show result
-                    document.getElementById('resultLabel').textContent =
-                        data.mode === 'Kannada ASR' ? 'KANNADA TRANSCRIPTION' : 'KANNADA TRANSLATION';
                     document.getElementById('resultText').textContent = data.result;
                     document.getElementById('resultCard').style.display = 'block';
 
-                    // Show original-language intermediate (multilingual mode, non-Kannada input)
-                    if (data.original_text && data.detected_language && data.detected_language !== 'Kannada') {
-                        document.getElementById('originalLabel').textContent = data.detected_language.toUpperCase() + ' TRANSCRIPTION';
-                        document.getElementById('originalText').textContent = data.original_text;
-                        document.getElementById('originalCard').style.display = 'block';
-                    } else {
-                        document.getElementById('originalCard').style.display = 'none';
-                    }
-                    
                     document.getElementById('resultSection').classList.add('show');
                 }
                 

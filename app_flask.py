@@ -10,9 +10,7 @@ import tempfile
 import uuid
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
-import torch
-from transformers import AutoModel, AutoModelForSeq2SeqLM, AutoTokenizer
-import whisper
+from transformers import AutoModel
 from dotenv import load_dotenv
 
 # Load token
@@ -38,7 +36,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Allowed extensions
 ALLOWED_EXTENSIONS = {
-    'wav', 'mp3', 'm4a', 'flac', 'aac', 'ogg', 'opus', 
+    'wav', 'mp3', 'm4a', 'flac', 'aac', 'ogg', 'opus',
     'mp4', 'mpeg', 'mpga', 'webm', 'm4p', 'm4b', 'm4r',
     '3gp', '3gpp', '3g2', 'amr', 'aiff', 'aif', 'aifc'
 }
@@ -65,32 +63,7 @@ except Exception as e:
     print(f'❌ Failed to load model: {e}')
     exit(1)
 
-print('🔄 Loading multilingual ASR model (Whisper)...')
-whisper_model = whisper.load_model('base')
-print('✅ Whisper model ready!')
-
-print('🔄 Loading translation model (NLLB-200)...')
-TRANS_REPO = 'facebook/nllb-200-distilled-600M'
-trans_tokenizer = AutoTokenizer.from_pretrained(TRANS_REPO)
-translation_model = AutoModelForSeq2SeqLM.from_pretrained(TRANS_REPO).to(DEV).eval()
-print('✅ Translation model ready!')
-
 print('\n✅ All models loaded!\n')
-
-# Whisper language code -> (NLLB FLORES-200 code, display name)
-SUPPORTED_LANGUAGES = {
-    'en': ('eng_Latn', 'English'),
-    'hi': ('hin_Deva', 'Hindi'),
-    'ta': ('tam_Taml', 'Tamil'),
-    'te': ('tel_Telu', 'Telugu'),
-    'ml': ('mal_Mlym', 'Malayalam'),
-    'mr': ('mar_Deva', 'Marathi'),
-    'bn': ('ben_Beng', 'Bengali'),
-    'gu': ('guj_Gujr', 'Gujarati'),
-    'pa': ('pan_Guru', 'Punjabi'),
-    'ur': ('urd_Arab', 'Urdu'),
-    'kn': ('kan_Knda', 'Kannada'),
-}
 
 # ============================================================
 # Helper Functions
@@ -105,20 +78,6 @@ def add_kannada_punctuation(text):
         text = text[:-1] + '।'
     return text
 
-def translate_to_kannada(text, nllb_lang):
-    """Translate text from the given NLLB language code to Kannada"""
-    trans_tokenizer.src_lang = nllb_lang
-    inputs = trans_tokenizer(text, return_tensors='pt', truncation=True, max_length=512)
-    with torch.no_grad():
-        outputs = translation_model.generate(
-            **inputs,
-            forced_bos_token_id=trans_tokenizer.convert_tokens_to_ids('kan_Knda'),
-            max_length=200,
-            num_beams=5,
-            early_stopping=True
-        )
-    return trans_tokenizer.decode(outputs[0], skip_special_tokens=True)
-
 def cleanup_file(file_path):
     """Clean up temporary file"""
     if file_path and os.path.exists(file_path):
@@ -132,11 +91,11 @@ def convert_to_wav(input_path):
     """Convert any audio format to WAV (16kHz, mono)"""
     try:
         print(f"🔄 Converting: {os.path.basename(input_path)}")
-        
+
         temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_wav.close()
         temp_wav_path = temp_wav.name
-        
+
         cmd = [
             'ffmpeg',
             '-i', input_path,
@@ -146,19 +105,19 @@ def convert_to_wav(input_path):
             '-y',
             temp_wav_path
         ]
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        
+
         if result.returncode != 0:
             print(f"❌ FFmpeg error: {result.stderr[:200]}")
             cleanup_file(temp_wav_path)
             return None
-        
+
         if not os.path.exists(temp_wav_path) or os.path.getsize(temp_wav_path) == 0:
             print("❌ Output file is empty or missing")
             cleanup_file(temp_wav_path)
             return None
-        
+
         # Verify with soundfile
         try:
             import soundfile as sf
@@ -168,9 +127,9 @@ def convert_to_wav(input_path):
             print(f"❌ Soundfile validation failed: {e}")
             cleanup_file(temp_wav_path)
             return None
-        
+
         return temp_wav_path
-        
+
     except subprocess.TimeoutExpired:
         print("❌ FFmpeg conversion timed out (60s)")
         cleanup_file(temp_wav_path)
@@ -193,107 +152,68 @@ def serve_audio(filename):
     """Serve uploaded audio files for playback"""
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     if os.path.exists(file_path):
-        return send_file(file_path, mimetype='audio/wav')
+        return send_file(file_path)
     return "File not found", 404
 
 @app.route('/transcribe', methods=['POST', 'OPTIONS'])
 def transcribe():
     """Kannada ASR: Kannada Speech → Kannada Text"""
-    
+
     if request.method == 'OPTIONS':
         response = jsonify({'status': 'ok'})
         response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
         response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         return response
-    
+
     temp_file = None
     uploaded_file_path = None
-    
+
     try:
-        mode = request.form.get('mode', 'kannada')
-
-        if mode not in ('kannada', 'multilingual'):
-            supported = ', '.join(name for _, name in SUPPORTED_LANGUAGES.values())
-            return jsonify({'error': f'Invalid mode. Choose "kannada" or "multilingual" (supports: {supported}).'}), 400
-
         if 'audio' not in request.files:
             return jsonify({'error': 'No audio file provided'}), 400
-        
+
         file = request.files['audio']
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
-        
+
         # Save uploaded file
         original_filename = file.filename
         ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'webm'
-        
+
         if not allowed_file(original_filename):
             return jsonify({'error': f'File type "{ext}" not supported'}), 400
-        
+
         filename = str(uuid.uuid4()) + '.' + ext
         uploaded_file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(uploaded_file_path)
-        
+
         print(f"📁 Saved: {original_filename} ({os.path.getsize(uploaded_file_path)} bytes)")
-        
+
         # Convert to WAV
         print(f'🔄 Converting to WAV...')
         temp_file = convert_to_wav(uploaded_file_path)
-        
+
         if not temp_file:
             cleanup_file(uploaded_file_path)
             return jsonify({'error': 'Failed to convert audio. Make sure ffmpeg is installed.'}), 500
-        
-        detected_language = None
-        original_text = None
 
-        if mode == 'kannada':
-            print(f'🎤 Kannada ASR: {os.path.basename(temp_file)}')
-            result = asr_model.transcribe([temp_file])[0]
-            result = add_kannada_punctuation(result)
-            response_mode = 'Kannada ASR'
-        else:
-            print(f'🎤 Detecting language: {os.path.basename(temp_file)}')
-            whisper_result = whisper_model.transcribe(temp_file)
-            lang_code = whisper_result['language']
-            original_text = whisper_result['text'].strip()
+        print(f'🎤 Kannada ASR: {os.path.basename(temp_file)}')
+        result = asr_model.transcribe([temp_file])[0]
+        result = add_kannada_punctuation(result)
 
-            if lang_code not in SUPPORTED_LANGUAGES:
-                cleanup_file(temp_file)
-                cleanup_file(uploaded_file_path)
-                supported = ', '.join(name for _, name in SUPPORTED_LANGUAGES.values())
-                return jsonify({'error': f'Detected language is not supported. Supported languages: {supported}.'}), 400
-
-            nllb_code, detected_language = SUPPORTED_LANGUAGES[lang_code]
-
-            if lang_code == 'kn':
-                # Already Kannada — use the dedicated ASR model for best accuracy
-                print('🎤 Detected Kannada — using SraVaani for transcription')
-                result = asr_model.transcribe([temp_file])[0]
-                original_text = result
-            else:
-                print(f'🔄 Translating from {detected_language} to Kannada...')
-                result = translate_to_kannada(original_text, nllb_code)
-
-            result = add_kannada_punctuation(result)
-            response_mode = 'Multilingual → Kannada'
-
-        # Clean up
+        # Clean up the converted scratch WAV, but keep the original upload
+        # around so /audio/<filename> can serve it back for playback.
         cleanup_file(temp_file)
-        cleanup_file(uploaded_file_path)
 
         response = jsonify({
             'success': True,
             'result': result,
-            'mode': response_mode,
-            'detected_language': detected_language,
-            'original_text': original_text,
             'audio_url': f'/audio/{filename}'
         })
         response.headers.add('Access-Control-Allow-Origin', '*')
         return response
-    
+
     except Exception as e:
         cleanup_file(temp_file)
         cleanup_file(uploaded_file_path)
@@ -308,5 +228,5 @@ if __name__ == '__main__':
     print('🌐 Open: http://127.0.0.1:2000')
     print('📝 Press Ctrl+C to stop')
     print('='*60 + '\n')
-    
+
     app.run(host='0.0.0.0', port=2000, debug=True, threaded=True)
