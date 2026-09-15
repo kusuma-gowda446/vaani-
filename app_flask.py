@@ -209,8 +209,7 @@ def transcribe():
             # ---- SHORT: single pass ----
             print(f"🎤 Short file — single-pass ASR")
             text = asr_model.transcribe([temp_wav])[0]
-            text = add_kannada_punctuation(text)
-            final_text = f"[0.00s - {duration:.2f}s] {text}"
+            final_text = add_kannada_punctuation(text)
         else:
             # ---- LONG: split into 60s chunks ----
             chunks = split_wav_into_chunks(temp_wav, chunk_sec=60)
@@ -228,7 +227,7 @@ def transcribe():
                 except Exception as ex:
                     t = f"[ERROR: {ex}]"
                     print(f"FAILED: {ex}")
-                lines.append(f"[{s:.2f}s - {e:.2f}s] {t}")
+                lines.append(t)
             final_text = '\n'.join(lines)
 
         # Cleanup temp files
