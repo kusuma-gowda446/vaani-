@@ -7,9 +7,11 @@ Supports short audio (single pass) and long audio (60s chunking).
 import os
 import subprocess
 import tempfile
+import time
 import uuid
 import numpy as np
 import soundfile as sf
+import torch
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 from transformers import AutoModel
@@ -19,6 +21,14 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv('HF_TOKEN')
 DEV = 'cpu'
+
+# This box has 8 cores but runs well above that in load average, so torch's
+# default of one thread per core collapses: the OpenMP threads spin-waiting on
+# each other can't all get scheduled, and every parallel step stalls on the
+# slowest one. Measured on a 60s chunk: 8 threads = 34.8s, 2 threads = 7.2s.
+# Override with ASR_THREADS if the machine's load profile changes.
+ASR_THREADS = int(os.getenv('ASR_THREADS', '2'))
+torch.set_num_threads(ASR_THREADS)
 
 # Create Flask app
 app = Flask(__name__)
@@ -123,25 +133,25 @@ def convert_to_wav(input_path):
         return None
 
 
-def split_wav_into_chunks(wav_path, chunk_sec=60):
+def split_wav_into_chunks(data, sr, chunk_sec=60):
     """
-    Split a WAV into fixed-size chunks.
-    Returns list of (start_sec, end_sec, chunk_path).
+    Split already-loaded audio into fixed-size chunks.
+    Returns list of (start_sec, end_sec, waveform) with waveform as a 1-D array.
+
+    The model's transcribe() accepts raw waveforms as well as paths, so chunks
+    stay in memory instead of being written to temp WAVs and decoded back.
     """
-    data, sr = sf.read(wav_path, dtype='float32', always_2d=True)
-    total_samples = len(data)
+    mono = data[:, 0] if data.ndim > 1 else data
+    total_samples = len(mono)
     total_dur = total_samples / sr
     step = int(chunk_sec * sr)
 
     chunks = []
-    for i, start in enumerate(range(0, total_samples, step)):
-        piece = data[start:start + step]
-        p = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        p.close()
-        sf.write(p.name, piece, sr)
+    for start in range(0, total_samples, step):
+        piece = np.ascontiguousarray(mono[start:start + step], dtype=np.float32)
         s = start / sr
         e = min((start + step) / sr, total_dur)
-        chunks.append((s, e, p.name))
+        chunks.append((s, e, piece))
     return chunks
 
 
@@ -175,7 +185,6 @@ def transcribe():
 
     temp_wav = None
     uploaded_path = None
-    chunk_paths = []
 
     try:
         if 'audio' not in request.files:
@@ -212,28 +221,30 @@ def transcribe():
             final_text = add_kannada_punctuation(text)
         else:
             # ---- LONG: split into 60s chunks ----
-            chunks = split_wav_into_chunks(temp_wav, chunk_sec=60)
-            chunk_paths = [c[2] for c in chunks]
+            # The exported TorchScript graph has a fixed positional-encoding
+            # table (~3113 encoder frames, roughly 4 minutes), so anything
+            # longer has to be chunked regardless of how much memory is free.
+            chunks = split_wav_into_chunks(data, sr, chunk_sec=60)
             print(f"✂️  Split into {len(chunks)} chunks of ~60s")
 
-            lines = []
-            for i, (s, e, p) in enumerate(chunks):
+            parts = []
+            for i, (s, e, piece) in enumerate(chunks):
                 print(f"   [{i + 1}/{len(chunks)}] {s:.1f}s - {e:.1f}s ... ",
                       end='', flush=True)
+                t0 = time.time()
                 try:
-                    t = asr_model.transcribe([p])[0]
+                    t = asr_model.transcribe([piece])[0]
                     t = add_kannada_punctuation(t)
-                    print("ok")
+                    print(f"ok ({time.time() - t0:.1f}s)")
                 except Exception as ex:
-                    t = f"[ERROR: {ex}]"
+                    t = ''
                     print(f"FAILED: {ex}")
-                lines.append(t)
-            final_text = '\n'.join(lines)
+                if t:
+                    parts.append(t)
+            final_text = ' '.join(parts)
 
         # Cleanup temp files
         cleanup_file(temp_wav)
-        for p in chunk_paths:
-            cleanup_file(p)
 
         response = jsonify({
             'success': True,
@@ -246,8 +257,6 @@ def transcribe():
 
     except Exception as e:
         cleanup_file(temp_wav)
-        for p in chunk_paths:
-            cleanup_file(p)
         cleanup_file(uploaded_path)
         print(f"❌ Error: {e}")
         import traceback
