@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Pragna Vaani - Kannada Speech Recognition (Kannada Only)
-Only Kannada Speech → Kannada Text
+Pragna Vaani - Kannada Speech Recognition
+Supports short audio (single pass) and long audio (60s chunking).
 """
 
 import os
 import subprocess
 import tempfile
 import uuid
+import numpy as np
+import soundfile as sf
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 from transformers import AutoModel
@@ -20,18 +22,14 @@ DEV = 'cpu'
 
 # Create Flask app
 app = Flask(__name__)
-
-# Enable CORS
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# File size limit
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
+# File size limit: 500 MB (plenty for long audio)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
-# Create folders
+# Upload folder
 UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Allowed extensions
@@ -41,23 +39,27 @@ ALLOWED_EXTENSIONS = {
     '3gp', '3gpp', '3g2', 'amr', 'aiff', 'aif', 'aifc'
 }
 
+
 def allowed_file(filename):
     if '.' not in filename:
         return False
-    ext = filename.rsplit('.', 1)[1].lower()
-    return ext in ALLOWED_EXTENSIONS
+    return filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 # ============================================================
-# Load Kannada ASR Model Only
+# Load Kannada ASR Model (SraVaani-1.0)
 # ============================================================
-
 print('🔄 Loading Kannada ASR model (SraVaani-1.0)...')
 REPO = 'ARTPARK-IISc/SraVaani-1.0'
 try:
     if TOKEN:
-        asr_model = AutoModel.from_pretrained(REPO, trust_remote_code=True, token=TOKEN).to(DEV).eval()
+        asr_model = AutoModel.from_pretrained(
+            REPO, trust_remote_code=True, token=TOKEN
+        ).to(DEV).eval()
     else:
-        asr_model = AutoModel.from_pretrained(REPO, trust_remote_code=True).to(DEV).eval()
+        asr_model = AutoModel.from_pretrained(
+            REPO, trust_remote_code=True
+        ).to(DEV).eval()
     print('✅ Kannada ASR model ready!')
 except Exception as e:
     print(f'❌ Failed to load model: {e}')
@@ -65,168 +67,203 @@ except Exception as e:
 
 print('\n✅ All models loaded!\n')
 
+
 # ============================================================
 # Helper Functions
 # ============================================================
-
 def add_kannada_punctuation(text):
-    """Add simple punctuation to Kannada text"""
+    """Add simple Kannada punctuation."""
     text = ' '.join(text.split())
-    if text and not text[-1] in ['.', '।', '?', '!']:
+    if text and text[-1] not in ['.', '।', '?', '!']:
         text = text + '।'
     if text.endswith('.'):
         text = text[:-1] + '।'
     return text
 
-def cleanup_file(file_path):
-    """Clean up temporary file"""
-    if file_path and os.path.exists(file_path):
+
+def cleanup_file(path):
+    """Safely delete a file."""
+    if path and os.path.exists(path):
         try:
-            os.remove(file_path)
-            print(f"🗑️ Deleted: {os.path.basename(file_path)}")
-        except:
+            os.remove(path)
+        except Exception:
             pass
 
+
 def convert_to_wav(input_path):
-    """Convert any audio format to WAV (16kHz, mono)"""
+    """Convert any audio format to 16 kHz mono WAV."""
+    tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    tmp.close()
+    out_path = tmp.name
     try:
-        print(f"🔄 Converting: {os.path.basename(input_path)}")
-
-        temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        temp_wav.close()
-        temp_wav_path = temp_wav.name
-
-        cmd = [
-            'ffmpeg',
+        subprocess.run([
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
             '-i', input_path,
             '-ac', '1',
             '-ar', '16000',
             '-acodec', 'pcm_s16le',
-            '-y',
-            temp_wav_path
-        ]
+            out_path,
+        ], capture_output=True, check=True, timeout=180)
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-
-        if result.returncode != 0:
-            print(f"❌ FFmpeg error: {result.stderr[:200]}")
-            cleanup_file(temp_wav_path)
+        if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+            cleanup_file(out_path)
             return None
-
-        if not os.path.exists(temp_wav_path) or os.path.getsize(temp_wav_path) == 0:
-            print("❌ Output file is empty or missing")
-            cleanup_file(temp_wav_path)
-            return None
-
-        # Verify with soundfile
-        try:
-            import soundfile as sf
-            data, sr = sf.read(temp_wav_path, dtype='float32', always_2d=True)
-            print(f"✅ Converted: {len(data)/sr:.1f}s, {sr}Hz, {data.shape[1]} channels")
-        except Exception as e:
-            print(f"❌ Soundfile validation failed: {e}")
-            cleanup_file(temp_wav_path)
-            return None
-
-        return temp_wav_path
-
+        return out_path
     except subprocess.TimeoutExpired:
-        print("❌ FFmpeg conversion timed out (60s)")
-        cleanup_file(temp_wav_path)
+        print("❌ FFmpeg timeout")
+        cleanup_file(out_path)
+        return None
+    except subprocess.CalledProcessError as e:
+        print(f"❌ FFmpeg error: {e.stderr.decode()[:200] if e.stderr else e}")
+        cleanup_file(out_path)
         return None
     except Exception as e:
         print(f"❌ Conversion error: {e}")
-        cleanup_file(temp_wav_path)
+        cleanup_file(out_path)
         return None
+
+
+def split_wav_into_chunks(wav_path, chunk_sec=60):
+    """
+    Split a WAV into fixed-size chunks.
+    Returns list of (start_sec, end_sec, chunk_path).
+    """
+    data, sr = sf.read(wav_path, dtype='float32', always_2d=True)
+    total_samples = len(data)
+    total_dur = total_samples / sr
+    step = int(chunk_sec * sr)
+
+    chunks = []
+    for i, start in enumerate(range(0, total_samples, step)):
+        piece = data[start:start + step]
+        p = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        p.close()
+        sf.write(p.name, piece, sr)
+        s = start / sr
+        e = min((start + step) / sr, total_dur)
+        chunks.append((s, e, p.name))
+    return chunks
+
 
 # ============================================================
 # Routes
 # ============================================================
-
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/audio/<filename>')
 def serve_audio(filename):
-    """Serve uploaded audio files for playback"""
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    if os.path.exists(file_path):
-        return send_file(file_path)
+    """Serve uploaded audio files for playback."""
+    path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if os.path.exists(path):
+        return send_file(path)
     return "File not found", 404
+
 
 @app.route('/transcribe', methods=['POST', 'OPTIONS'])
 def transcribe():
-    """Kannada ASR: Kannada Speech → Kannada Text"""
+    """Kannada ASR: short audio = single pass, long audio = 60s chunks."""
 
     if request.method == 'OPTIONS':
-        response = jsonify({'status': 'ok'})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        return response
+        r = jsonify({'status': 'ok'})
+        r.headers.add('Access-Control-Allow-Origin', '*')
+        r.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        r.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        return r
 
-    temp_file = None
-    uploaded_file_path = None
+    temp_wav = None
+    uploaded_path = None
+    chunk_paths = []
 
     try:
         if 'audio' not in request.files:
             return jsonify({'error': 'No audio file provided'}), 400
 
         file = request.files['audio']
-        if file.filename == '':
+        if not file.filename:
             return jsonify({'error': 'No file selected'}), 400
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Unsupported file type'}), 400
 
-        # Save uploaded file
-        original_filename = file.filename
-        ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'webm'
+        # Save upload
+        ext = file.filename.rsplit('.', 1)[1].lower()
+        fname = f"{uuid.uuid4()}.{ext}"
+        uploaded_path = os.path.join(app.config['UPLOAD_FOLDER'], fname)
+        file.save(uploaded_path)
+        print(f"📁 Saved: {file.filename} ({os.path.getsize(uploaded_path)} bytes)")
 
-        if not allowed_file(original_filename):
-            return jsonify({'error': f'File type "{ext}" not supported'}), 400
+        # Convert to 16 kHz mono wav
+        temp_wav = convert_to_wav(uploaded_path)
+        if not temp_wav:
+            return jsonify({'error': 'Failed to convert audio. Is ffmpeg installed?'}), 500
 
-        filename = str(uuid.uuid4()) + '.' + ext
-        uploaded_file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(uploaded_file_path)
+        # Get duration
+        data, sr = sf.read(temp_wav, dtype='float32', always_2d=True)
+        duration = len(data) / sr
+        print(f"📏 Duration: {duration:.1f}s")
 
-        print(f"📁 Saved: {original_filename} ({os.path.getsize(uploaded_file_path)} bytes)")
+        # Route: short vs long
+        if duration <= 65:
+            # ---- SHORT: single pass ----
+            print(f"🎤 Short file — single-pass ASR")
+            text = asr_model.transcribe([temp_wav])[0]
+            text = add_kannada_punctuation(text)
+            final_text = f"[0.00s - {duration:.2f}s] {text}"
+        else:
+            # ---- LONG: split into 60s chunks ----
+            chunks = split_wav_into_chunks(temp_wav, chunk_sec=60)
+            chunk_paths = [c[2] for c in chunks]
+            print(f"✂️  Split into {len(chunks)} chunks of ~60s")
 
-        # Convert to WAV
-        print(f'🔄 Converting to WAV...')
-        temp_file = convert_to_wav(uploaded_file_path)
+            lines = []
+            for i, (s, e, p) in enumerate(chunks):
+                print(f"   [{i + 1}/{len(chunks)}] {s:.1f}s - {e:.1f}s ... ",
+                      end='', flush=True)
+                try:
+                    t = asr_model.transcribe([p])[0]
+                    t = add_kannada_punctuation(t)
+                    print("ok")
+                except Exception as ex:
+                    t = f"[ERROR: {ex}]"
+                    print(f"FAILED: {ex}")
+                lines.append(f"[{s:.2f}s - {e:.2f}s] {t}")
+            final_text = '\n'.join(lines)
 
-        if not temp_file:
-            cleanup_file(uploaded_file_path)
-            return jsonify({'error': 'Failed to convert audio. Make sure ffmpeg is installed.'}), 500
-
-        print(f'🎤 Kannada ASR: {os.path.basename(temp_file)}')
-        result = asr_model.transcribe([temp_file])[0]
-        result = add_kannada_punctuation(result)
-
-        # Clean up the converted scratch WAV, but keep the original upload
-        # around so /audio/<filename> can serve it back for playback.
-        cleanup_file(temp_file)
+        # Cleanup temp files
+        cleanup_file(temp_wav)
+        for p in chunk_paths:
+            cleanup_file(p)
 
         response = jsonify({
             'success': True,
-            'result': result,
-            'audio_url': f'/audio/{filename}'
+            'result': final_text,
+            'audio_url': f'/audio/{fname}',
+            'duration': duration,
         })
         response.headers.add('Access-Control-Allow-Origin', '*')
         return response
 
     except Exception as e:
-        cleanup_file(temp_file)
-        cleanup_file(uploaded_file_path)
+        cleanup_file(temp_wav)
+        for p in chunk_paths:
+            cleanup_file(p)
+        cleanup_file(uploaded_path)
         print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
+# ============================================================
+# Main
+# ============================================================
 if __name__ == '__main__':
-    print('\n' + '='*60)
-    print('🎙️ Pragna Vaani - Kannada Speech Recognition')
+    print('\n' + '=' * 60)
+    print('🎙️ Pragna Vaani — Kannada Speech Recognition')
     print('🌐 Open: http://127.0.0.1:2000')
     print('📝 Press Ctrl+C to stop')
-    print('='*60 + '\n')
+    print('=' * 60 + '\n')
 
     app.run(host='0.0.0.0', port=2000, debug=True, threaded=True)
